@@ -1,0 +1,12 @@
+# Lake build directory
+.lake/
+
+# Dependency packages
+lake-packages/
+
+# Compiled output
+build/
+
+# Lean binary and interactive objects
+*.olean
+*.ilean
