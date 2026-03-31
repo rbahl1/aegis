@@ -10,7 +10,7 @@ The engine implements a semi-decidable procedure using iterative deepening. By e
 - **Dual-Track**: Simultaneously evaluates the proposition and its refutation.
 
 ## Usage
-Include `aegis` in your `lakefile.lean` and import:
+Include `aegis` in your `lakefile.lean` and import Aegis.Prover. Here is a usage example:
 
 ```lean
 import Aegis.Prover
