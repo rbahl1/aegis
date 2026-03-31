@@ -1,6 +1,6 @@
 # Aegis
 
-**Aegis** is a high-performance Universal Prover/Disprover for Lean 4.
+**Aegis** is a brute-force Universal Prover/Disprover for Lean 4.
 
 The engine implements a semi-decidable procedure using iterative deepening. By exhaustively searching the environment's space of proof terms in a breadth-first manner, Aegis guarantees the discovery of the lengthwise shortest proof term for a given proposition or its negation.
 
