@@ -7,6 +7,10 @@ A semi-decidable procedure that utilizes iterative deepening to find
 the optimal (shortest) proof or refutation for a given proposition.
 
 ### Usage: Truly Running Forever
+We have included a thread-based option to kill the running of this task
+because Lean 4 does not allow a function execution to be remotely killed
+in a proper manner. This makes it harness-aware, which is also what it is
+expected to be used for(with) in most of the use cases.
 To ensure the prover runs indefinitely until a result is found, 
 provide an `IO.Ref Bool` that is never modified:
 
