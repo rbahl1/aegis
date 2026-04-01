@@ -5,6 +5,16 @@ import Lean
 
 A semi-decidable procedure that utilizes iterative deepening to find 
 the optimal (shortest) proof or refutation for a given proposition.
+
+### Usage: Truly Running Forever
+To ensure the prover runs indefinitely until a result is found, 
+provide an `IO.Ref Bool` that is never modified:
+
+```lean
+let permanentlyFalse ← liftM (IO.mkRef false : IO (IO.Ref Bool))
+let result ← Aegis.proveOrDisprove p permanentlyFalse
+In this configuration, the cancellation check always fails, and
+the iterative deepening recursion continues without interruption.
 -/
 
 open Lean Meta Elab Tactic
@@ -58,21 +68,43 @@ def universalSearch (goals : List MVarId) (fuel : Nat) (root : MVarId) : MetaM (
 /-- 
 Entry point for the universal prover/disprover. 
 Recursive implementation of the iterative deepening loop.
+Accepts a stopSignal (IO.Ref Bool) for thread-safe cancellation.
+If stopSignal is set to true externally, returns 'none' to halt recursion.
 -/
-partial def proveOrDisprove (p : Expr) : MetaM ProofResponse := do
+partial def proveOrDisprove (p : Expr) (stopSignal : IO.Ref Bool) : MetaM (Option ProofResponse) := do
   let negation ← mkArrow p (mkConst ``False)
   let mVarTrue ← mkFreshExprMVar p
   let mVarFalse ← mkFreshExprMVar negation
   
-  let rec find (depth : Nat) : MetaM ProofResponse := do
-    -- Search for proof of P
+  -- 1. CRITICAL: The explicit return type MUST be here so Lean knows the monad
+  let rec find (depth : Nat) : MetaM (Option ProofResponse) := do
+    
+    -- 2. CLEANER: Lean 4 auto-lifts IO to MetaM. No need for liftM or type ascriptions.
+    if ← stopSignal.get then return none
+
     if let some proof ← universalSearch [mVarTrue.mvarId!] depth mVarTrue.mvarId! then
-      return ⟨true, proof⟩
-    -- Search for proof of P → False
+      return some ⟨true, proof⟩
     if let some refutation ← universalSearch [mVarFalse.mvarId!] depth mVarFalse.mvarId! then
-      return ⟨false, refutation⟩
+      return some ⟨false, refutation⟩
+      
     find (depth + 1)
 
   find 1
+
+/--
+Example of an explicit call where the prover is set to run forever.
+This uses a dummy proposition and a permanently false IO.Ref.
+-/
+def exampleCallRunForever : MetaM Unit := do
+  let p ← mkFreshExprMVar (mkConst ``Unit) -- dummy proposition
+  let permanentlyFalse ← liftM (IO.mkRef false : IO (IO.Ref Bool))
+
+  let result ← proveOrDisprove p permanentlyFalse
+
+  match result with
+  | some res =>
+  IO.println s!"Result found. Status: {res.status}"
+  | none =>
+  IO.println "Prover stopped (unreachable with permanentlyFalse ref)."
 
 end Aegis
