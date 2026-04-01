@@ -1,6 +1,6 @@
 # Aegis
 
-**Aegis** is an exhaustive, concurrent formal verification suite for Lean 4. It acts as a wrapper to inject absolute formal guarantees into non-guaranteed AI-based formal applications.
+**Aegis** is a formal verification suite for Lean 4. It has deciders(provers) and wrapper(s) to inject absolute formal guarantees into non-guaranteed AI-based formal applications.
 
 The engine implements a semi-decidable procedure using iterative BFS deepening. By exhaustively searching the environment's space of proof terms, Aegis guarantees the discovery of the **globally optimal (shortest-depth) proof term** for a given proposition or its negation, provided such a term exists.
 
