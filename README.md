@@ -5,12 +5,12 @@
 The engine implements a semi-decidable procedure using iterative deepening. By exhaustively searching the environment's space of proof terms in a breadth-first manner, Aegis guarantees the discovery of the lengthwise shortest proof term for a given proposition or its negation, as long as the proposition is of finite-length and the proof-term is also finite.
 
 ## Technical Specifications
-- **Universal Search**: Explores the global constant environment to construct valid proof terms.
+- **Universal Search**: Constructs applications of the minimal Lean-4-Complete tactics and verifies then via the Lean 4 kernel.
 - **Optimal Discovery**: Iterative deepening ensures that the first proof found is the shortest possible path.
 - **Dual-Track**: Simultaneously evaluates the proposition and its refutation.
 
 ## Usage
-Include `aegis` in your `lakefile.lean` and import Aegis.Prover. Here is a usage example:
+Include `aegis` in your `lakefile.lean` and import Aegis.Prover. Here is an example:
 
 ```lean
 import Aegis.Prover
