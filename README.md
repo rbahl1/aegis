@@ -41,7 +41,8 @@ For direct, non-competitive proof search:
 import Aegis.Prover
 
 /-- Basic execution of the universal prover -/
-def runProver (targetProp : Expr) : MetaM Unit := do
+
+partial def runProver (targetProp : Expr) : MetaM Unit := do
   -- Create a stop signal that is never set to true to run indefinitely
   let stopSignal ← IO.mkRef false
   
@@ -63,7 +64,8 @@ open Lean Meta
   A dummy AI prover. In a real scenario, this would call 
   an external LLM or a non-deterministic heuristic or something without same level of guarantee. 
 -/
-def dummyAIProver (p : Expr) (stopSignal : IO.Ref Bool) : MetaM (Option Aegis.ProofResponse) := do
+
+partial def dummyAIProver (p : Expr) (stopSignal : IO.Ref Bool) : MetaM (Option Aegis.ProofResponse) := do
   -- Simulate a non-deterministic delay or search
   IO.sleep 100 
   -- If the AI is "beaten" by Aegis, it should respect the stopSignal
@@ -73,7 +75,8 @@ def dummyAIProver (p : Expr) (stopSignal : IO.Ref Bool) : MetaM (Option Aegis.Pr
   return none
 
 /-- Example of calling the harness to race Aegis vs the AI -/
-def runHarnessExample (targetProp : Expr) : MetaM Unit := do
+
+partial def runHarnessExample (targetProp : Expr) : MetaM Unit := do
   let result ← Aegis.harness targetProp dummyAIProver
   match result with
   | some res => 
