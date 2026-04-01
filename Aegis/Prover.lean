@@ -91,20 +91,4 @@ partial def proveOrDisprove (p : Expr) (stopSignal : IO.Ref Bool) : MetaM (Optio
 
   find 1
 
-/--
-Example of an explicit call where the prover is set to run forever.
-This uses a dummy proposition and a permanently false IO.Ref.
--/
-def exampleCallRunForever : MetaM Unit := do
-  let p ← mkFreshExprMVar (mkConst ``Unit) -- dummy proposition
-  let permanentlyFalse ← liftM (IO.mkRef false : IO (IO.Ref Bool))
-
-  let result ← proveOrDisprove p permanentlyFalse
-
-  match result with
-  | some res =>
-  IO.println s!"Result found. Status: {res.status}"
-  | none =>
-  IO.println "Prover stopped (unreachable with permanentlyFalse ref)."
-
 end Aegis
