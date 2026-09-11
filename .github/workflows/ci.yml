@@ -1,8 +1,10 @@
 name: CI
 
+# Pushes to a branch with an open pull request are covered by pull_request;
+# listing only main here keeps a PR push from firing two identical runs.
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
 
 # A newer push on the same ref supersedes an in-flight run.
