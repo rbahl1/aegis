@@ -105,4 +105,59 @@ private def honest (_ : Expr) (_ : IO.Ref Bool) : MetaM (Option ProofResponse) :
     | some res => checkResponse tru res
     | none => return false
 
+-- Soundness. Lean's environment ships constants that close any goal in one
+-- step: the compiler's unsafe `lcProof`/`lcUnreachable`, `sorryAx`, and the
+-- trust axioms (`Lean.trustCompiler : True`). A search that may use them proves
+-- `False`, and no downstream check can catch that, because the certificates are
+-- genuinely well-typed. Both the search space and the checker exclude them.
+#eval show MetaM Unit from do
+  check "the search space excludes the escape hatches" do
+    let cs ← getUniversalConstants
+    return ![``lcProof, ``lcUnreachable, ``sorryAx, ``Lean.trustCompiler,
+             ``Lean.ofReduceBool].any cs.contains
+  check "checkResponse rejects a certificate resting on lcUnreachable" do
+    let lc := mkApp (mkConst ``lcUnreachable [levelZero]) (mkConst ``False)
+    return !(← checkResponse (mkConst ``False) ⟨true, lc⟩)
+  check "checkResponse rejects Lean.trustCompiler as a proof of True" do
+    return !(← checkResponse (mkConst ``True) ⟨true, mkConst ``Lean.trustCompiler⟩)
+  -- `inferType` assumes its argument is type-correct: it reads the pi type off
+  -- the function and instantiates, never checking the argument. So `@id False
+  -- True.intro` "has type" `False` while being ill-typed.
+  check "checkResponse rejects an ill-typed term that infers the right type" do
+    let bad := mkApp2 (mkConst ``id [levelZero]) (mkConst ``False) (mkConst ``True.intro)
+    return !(← checkResponse (mkConst ``False) ⟨true, bad⟩)
+  -- `isDefEq` assigns metavariables to make itself succeed, and `p` belongs to
+  -- the caller: a competitor must not be able to redefine the proposition into
+  -- one its answer happens to settle.
+  check "checkResponse leaves the caller's metavariables untouched" do
+    let hole ← mkFreshExprMVar (mkSort levelZero)
+    let _ ← checkResponse hole ⟨true, mkConst ``True.intro⟩
+    return !(← hole.mvarId!.isAssigned)
+  -- End to end: `False` is refutable and not provable, so the prover must come
+  -- back with `status = false` rather than a certificate for `False` itself.
+  check "proveOrDisprove refutes False instead of proving it" do
+    match ← proveOrDisprove (mkConst ``False) (← IO.mkRef false) with
+    | some res => return !res.status && (← checkResponse (mkConst ``False) res)
+    | none => return false
+
+-- Completeness. Applying a constant unifies its conclusion with the goal, which
+-- can assign a sibling goal as a side effect: closing `?h : ?w = 0` with `rfl`
+-- assigns the witness `?w := 0`. Unless such goals are pruned, the witness
+-- remains in the list, every candidate raises `checkNotAssigned` on it, and a
+-- finished proof is abandoned as a dead end -- making every existential
+-- unprovable at any depth.
+#eval show TermElabM Unit from do
+  let p ← Term.elabTerm (← `(∃ n : Nat, n = 0)) (some (mkSort levelZero))
+  Term.synthesizeSyntheticMVarsNoPostponing
+  let stop ← IO.mkRef false
+  let cs := #[``Exists.intro, ``rfl, ``OfNat.ofNat, ``instOfNatNat, ``Nat.zero]
+  check "search finds a witness-style proof of an existential" do
+    let mv ← mkFreshExprMVar p
+    match ← universalSearch [mv.mvarId!] 2 mv.mvarId! cs stop with
+    | some pf => checkResponse p ⟨true, pf⟩
+    | none => return false
+  check "and finds nothing at fuel 1, so the witness proof really is shortest" do
+    let mv ← mkFreshExprMVar p
+    return (← universalSearch [mv.mvarId!] 1 mv.mvarId! cs stop).isNone
+
 end Aegis.Tests

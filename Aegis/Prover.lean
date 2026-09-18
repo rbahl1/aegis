@@ -40,6 +40,36 @@ structure ProofResponse where
   deriving Inhabited
 
 /--
+The axioms a certificate is allowed to rest on: the three that Lean's own
+`#print axioms` treats as the standard foundation.
+
+Lean's environment also carries axioms that are trust escape hatches rather
+than logical foundations -- `Lean.trustCompiler`, `Lean.ofReduceBool`,
+`Lean.ofReduceNat` -- and `Lean.trustCompiler : True` in particular closes a
+`True` goal in one step. A certificate resting on one of those is evidence
+about the compiler, not about the proposition.
+-/
+def trustedAxioms : Array Name := #[``propext, ``Classical.choice, ``Quot.sound]
+
+/--
+The vocabulary a certificate may be built from, shared by the search and the
+checker so that the two cannot disagree about what counts as a proof.
+
+Three exclusions, each of which would otherwise let anything be "proved":
+* unsafe constants -- the compiler's `lcProof : ∀ {α : Prop}, α` and
+  `lcUnreachable : {α : Sort u} → α` close *any* goal in a single `apply`;
+* `sorryAx`, the representation of an admitted proof;
+* axioms outside `trustedAxioms`.
+
+Type-checking cannot substitute for this. `lcProof` is a perfectly well-typed
+constant, so a term built from it passes every checker Lean has; what makes it
+inadmissible is *which* constant it is.
+-/
+def admissibleConstant (name : Name) (info : ConstantInfo) : Bool :=
+  !info.isUnsafe && name != ``sorryAx &&
+    (!(info matches .axiomInfo _) || trustedAxioms.contains name)
+
+/--
 Retrieves the names of all non-internal constants available in the environment.
 
 Names rather than `Expr`s: a universe-polymorphic constant must be instantiated
@@ -48,12 +78,15 @@ across the whole search would let the first successful `apply` pin the universe
 levels for every later one. The list is also built once per search rather than
 once per node -- traversing the whole environment at every node dominated the
 runtime of the search it was meant to serve.
+
+Only admissible constants are offered to the search, so that Aegis's own
+certificates pass `checkResponse` by construction rather than by luck.
 -/
 def getUniversalConstants : MetaM (Array Name) := do
   let env ← getEnv
   let mut constants := #[]
-  for (name, _) in env.constants.toList do
-    if !name.isInternal then
+  for (name, info) in env.constants.toList do
+    if !name.isInternal && admissibleConstant name info then
       constants := constants.push name
   return constants
 
@@ -123,6 +156,14 @@ an arbitrarily long time.
 def universalSearch (goals : List MVarId) (fuel : Nat) (root : MVarId)
     (constants : Array Name) (stopSignal : IO.Ref Bool) : MetaM (Option Expr) := do
   if ← stopSignal.get then return none
+  -- Drop goals that are already solved. Applying a constant unifies its
+  -- conclusion with the goal, which can assign *sibling* goals as a side
+  -- effect: closing `?h : ?w = 0` with `rfl` assigns the witness `?w := 0`.
+  -- The witness then stays in this list as a goal that no candidate can touch
+  -- -- every tactic raises `checkNotAssigned` on it -- so the node yields no
+  -- branches and a finished proof is abandoned as a dead end. Lean's own
+  -- tactic framework prunes for the same reason.
+  let goals ← goals.filterM fun g => return !(← g.isAssigned)
   match goals with
   | [] => return some (← instantiateMVars (mkMVar root))
   | g :: rest =>
@@ -180,20 +221,58 @@ partial def proveOrDisprove (p : Expr) (stopSignal : IO.Ref Bool) :
     deepen p negation (← getUniversalConstants) stopSignal 1
 
 /--
+Walks the constants a certificate transitively depends on and rejects it unless
+every one of them is `admissibleConstant`.
+
+A prover we did not write hands us an arbitrary `Expr`, so the vocabulary it
+used has to be checked rather than assumed. Internal names are allowed here,
+unlike in the search: a legitimate proof term routinely mentions the internal
+constants Lean generates for it.
+-/
+partial def auditCertificate (e : Expr) : MetaM Bool := do
+  let env ← getEnv
+  let rec go (pending : List Name) (seen : NameSet) : Bool :=
+    match pending with
+    | [] => true
+    | c :: rest =>
+      if seen.contains c then go rest seen
+      else match env.find? c with
+        | none => false
+        | some info =>
+          if !admissibleConstant c info then false
+          else
+            let next := info.type.getUsedConstants.toList
+              ++ (info.value?.map (·.getUsedConstants.toList)).getD []
+            go (next ++ rest) (seen.insert c)
+  return go e.getUsedConstants.toList {}
+
+/--
 Re-checks a `ProofResponse` against the proposition it claims to settle:
-the certificate must be closed (no holes, no `sorry`) and its type must be
-defeq to `p` for a proof or to `p → False` for a refutation.
+the certificate must be closed (no holes, no `sorry`), must type-check, must
+rest only on `trustedAxioms`, and its type must be defeq to `p` for a proof or
+to `p → False` for a refutation.
 
 This is what lets an unverified prover be trusted. Aegis's own certificates
 pass by construction, but a response handed back by an AI is just an `Expr`
-until the kernel's type checker agrees with it.
+until the type checker and the axiom audit both agree with it.
 -/
-def checkResponse (p : Expr) (res : ProofResponse) : MetaM Bool := do
-  try
-    let proof ← instantiateMVars res.proof
-    if proof.hasExprMVar || proof.hasSorry then return false
-    let expected ← if res.status then pure p else mkArrow p (mkConst ``False)
-    isDefEq (← inferType proof) expected
-  catch _ => return false
+def checkResponse (p : Expr) (res : ProofResponse) : MetaM Bool :=
+  -- Read-only: `isDefEq` assigns metavariables to make itself succeed, and `p`
+  -- belongs to the caller. Without this, a competitor answering `True.intro`
+  -- for a proposition that still carries a hole would *assign* that hole to
+  -- `True` and thereby make its own claim come true.
+  withoutModifyingState do
+    try
+      let proof ← instantiateMVars res.proof
+      if proof.hasExprMVar || proof.hasSorry then return false
+      -- `inferType` assumes its argument is already type-correct: it reads the
+      -- pi type off the function and returns the instantiated body without ever
+      -- looking at the argument, so `@id False True.intro` "has type" `False`.
+      -- `check` is the one that actually type-checks.
+      Meta.check proof
+      unless ← auditCertificate proof do return false
+      let expected ← if res.status then pure p else mkArrow p (mkConst ``False)
+      isDefEq (← inferType proof) expected
+    catch _ => return false
 
 end Aegis
