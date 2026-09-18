@@ -1,0 +1,33 @@
+name: CI
+
+# Pushes to a branch with an open pull request are covered by pull_request;
+# listing only main here keeps a PR push from firing two identical runs.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push on the same ref supersedes an in-flight run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the toolchain pinned in lean-toolchain and runs `lake build`,
+      # which builds the default target (the Aegis library).
+      - name: Build Aegis
+        uses: leanprover/lean-action@v1
+        with:
+          test: false
+          lint: false
+
+      # The tests are deliberately not a default target: they run real proof
+      # searches, so they cost real time. A failing check throws, failing the build.
+      - name: Build AegisTests
+        run: lake build AegisTests

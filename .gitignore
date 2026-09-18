@@ -10,3 +10,4 @@ build/
 # Lean binary and interactive objects
 *.olean
 *.ilean
+
